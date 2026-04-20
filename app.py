@@ -172,10 +172,9 @@ with st.sidebar:
         help="Slower. Attempts direct page extraction only where publishers allow it.",
     )
 
-    refresh = st.button("Refresh news", type="primary", width="stretch")
-    if refresh:
+    load_news = st.button("Load / Refresh news", type="primary", width="stretch")
+    if load_news:
         st.cache_data.clear()
-        st.rerun()
 
     st.divider()
     st.caption("New modules can be added in news_config.py without changing the UI.")
@@ -184,13 +183,35 @@ if not selected_keys:
     st.warning("Select at least one module.")
     st.stop()
 
-with st.spinner("Pulling free-source news feeds..."):
-    news = cached_fetch_all(
-        tuple(selected_keys),
-        tuple(sorted(lookback_by_group.items())),
-        max_items_per_query,
-        fetch_excerpts,
-    )
+settings = (
+    tuple(selected_keys),
+    tuple(sorted(lookback_by_group.items())),
+    max_items_per_query,
+    fetch_excerpts,
+)
+
+if "news_data" not in st.session_state:
+    st.session_state.news_data = None
+    st.session_state.news_settings = None
+
+if load_news:
+    with st.spinner("Pulling free-source news feeds..."):
+        st.session_state.news_data = cached_fetch_all(*settings)
+        st.session_state.news_settings = settings
+
+if st.session_state.news_data is None:
+    st.info("Choose your modules and lookback windows, then tap Load / Refresh news to fetch the latest free-source articles.")
+    preview_cols = st.columns(3)
+    for index, group in enumerate(GROUP_ORDER):
+        with preview_cols[index % 3]:
+            with st.container(border=True):
+                st.subheader(group)
+                modules = grouped_modules.get(group, [])
+                for module in modules:
+                    st.caption(f"{module.label}: {module.subgroup}")
+    st.stop()
+
+news = st.session_state.news_data
 
 if news.empty:
     st.info("No news found for the selected modules and filters. Try increasing the lookback window.")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
@@ -135,49 +136,58 @@ def fetch_module_news(
 ) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
 
-    for query in module.queries:
+    def fetch_query_entries(query: str) -> list[tuple[str, object]]:
         rss_url = build_rss_url(query, days_back)
         try:
             response = requests.get(rss_url, headers={"User-Agent": USER_AGENT}, timeout=12)
             response.raise_for_status()
         except requests.RequestException:
-            continue
+            return []
         feed = feedparser.parse(response.content)
-        for entry in feed.entries[:max_items_per_query]:
-            title = normalize_text(entry.get("title"))
-            link = entry.get("link", "")
-            summary = normalize_text(entry.get("summary"))
-            published = parse_datetime(entry.get("published"))
-            source = normalize_text(entry.get("source", {}).get("title") if entry.get("source") else "")
-            excerpt = fetch_article_excerpt(link) if fetch_excerpts and link else ""
-            combined_text = " ".join([title, summary, excerpt, source])
-            domain = domain_from_url(link)
-            entities = matched_terms(combined_text, module.watch_entities)
-            priority_source = source_score(domain, source, module) > 0
-            relevance, score = classify_relevance(combined_text, module, domain, source)
+        return [(query, entry) for entry in feed.entries[:max_items_per_query]]
 
-            rows.append(
-                {
-                    "id": result_id(title, link),
-                    "module_key": module.key,
-                    "module": module.label,
-                    "group": module.group,
-                    "subgroup": module.subgroup,
-                    "query": query,
-                    "title": title,
-                    "source": source or domain_from_url(link),
-                    "domain": domain,
-                    "published_utc": published,
-                    "published": published.strftime("%Y-%m-%d %H:%M UTC") if published else "",
-                    "summary": summary,
-                    "excerpt": excerpt,
-                    "relevance": relevance,
-                    "relevance_score": score,
-                    "matched_entities": ", ".join(entities[:10]),
-                    "priority_source": priority_source,
-                    "url": link,
-                }
-            )
+    max_workers = min(12, max(1, len(module.queries)))
+    query_entries: list[tuple[str, object]] = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(fetch_query_entries, query) for query in module.queries]
+        for future in as_completed(futures):
+            query_entries.extend(future.result())
+
+    for query, entry in query_entries:
+        title = normalize_text(entry.get("title"))
+        link = entry.get("link", "")
+        summary = normalize_text(entry.get("summary"))
+        published = parse_datetime(entry.get("published"))
+        source = normalize_text(entry.get("source", {}).get("title") if entry.get("source") else "")
+        excerpt = fetch_article_excerpt(link) if fetch_excerpts and link else ""
+        combined_text = " ".join([title, summary, excerpt, source])
+        domain = domain_from_url(link)
+        entities = matched_terms(combined_text, module.watch_entities)
+        priority_source = source_score(domain, source, module) > 0
+        relevance, score = classify_relevance(combined_text, module, domain, source)
+
+        rows.append(
+            {
+                "id": result_id(title, link),
+                "module_key": module.key,
+                "module": module.label,
+                "group": module.group,
+                "subgroup": module.subgroup,
+                "query": query,
+                "title": title,
+                "source": source or domain_from_url(link),
+                "domain": domain,
+                "published_utc": published,
+                "published": published.strftime("%Y-%m-%d %H:%M UTC") if published else "",
+                "summary": summary,
+                "excerpt": excerpt,
+                "relevance": relevance,
+                "relevance_score": score,
+                "matched_entities": ", ".join(entities[:10]),
+                "priority_source": priority_source,
+                "url": link,
+            }
+        )
 
     if not rows:
         return pd.DataFrame()
