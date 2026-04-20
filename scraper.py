@@ -49,7 +49,7 @@ def parse_datetime(value: str | None) -> datetime | None:
 def normalize_text(value: str | None) -> str:
     if not value:
         return ""
-    return re.sub(r"\s+", " ", BeautifulSoup(value, "lxml").get_text(" ")).strip()
+    return re.sub(r"\s+", " ", BeautifulSoup(value, "html.parser").get_text(" ")).strip()
 
 
 def result_id(title: str, link: str) -> str:
@@ -114,7 +114,7 @@ def fetch_article_excerpt(url: str, timeout: int = 8) -> str:
     if "html" not in content_type:
         return ""
 
-    soup = BeautifulSoup(response.text, "lxml")
+    soup = BeautifulSoup(response.text, "html.parser")
     for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "aside"]):
         tag.decompose()
 
