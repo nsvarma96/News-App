@@ -25,6 +25,22 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36"
 )
 
+OPEN_SEARCH_STOPWORDS = {
+    "about",
+    "arabia",
+    "for",
+    "from",
+    "in",
+    "near",
+    "news",
+    "of",
+    "on",
+    "saudi",
+    "the",
+    "to",
+    "with",
+}
+
 
 def build_rss_url(query: str, days_back: int) -> str:
     if days_back <= 31:
@@ -243,29 +259,34 @@ def fetch_open_search_news(
     days_back: int = 30,
     max_items: int = 25,
     fetch_excerpts: bool = False,
-    broad_search: bool = True,
+    search_mode: str = "smart",
 ) -> pd.DataFrame:
     cleaned_topic = normalize_text(topic)
     if not cleaned_topic:
         return pd.DataFrame()
 
     query_variants = [cleaned_topic]
-    if broad_search:
+    if search_mode == "exact":
+        query_variants = [f'"{cleaned_topic}"']
+    elif search_mode == "product":
+        query_variants = [
+            f'"{cleaned_topic}"',
+            cleaned_topic,
+            f"{cleaned_topic} supplier OR distributor OR manufacturer",
+            f"{cleaned_topic} Saudi Arabia OR Riyadh OR Jeddah OR Dammam",
+        ]
+    elif search_mode == "smart":
         quoted_topic = f'"{cleaned_topic}"'
         query_variants.extend(
             [
                 quoted_topic,
                 f"{cleaned_topic} news",
                 f"{cleaned_topic} company",
-                f"{cleaned_topic} pharma OR healthcare OR pharmaceutical",
-                f"{cleaned_topic} India OR Middle East OR UAE OR Saudi",
             ]
         )
         if len(cleaned_topic.split()) == 1:
             query_variants.extend(
                 [
-                    f"{cleaned_topic} pharmaceutical",
-                    f"{cleaned_topic} healthcare",
                     f"{cleaned_topic} investment OR acquisition OR partnership",
                 ]
             )
@@ -281,12 +302,29 @@ def fetch_open_search_news(
         include_terms=tuple(part for part in re.split(r"\s+", cleaned_topic) if len(part) > 2),
         watch_entities=(cleaned_topic,),
     )
-    return fetch_module_news(
+    frame = fetch_module_news(
         module,
         days_back=days_back,
         max_items_per_query=max_items,
         fetch_excerpts=fetch_excerpts,
     )
+    if search_mode == "product" and not frame.empty:
+        product_terms = [
+            token
+            for token in re.findall(r"[A-Za-z0-9]+", cleaned_topic.lower())
+            if len(token) > 2 and token not in OPEN_SEARCH_STOPWORDS
+        ]
+        if product_terms:
+            searchable = frame[["title", "summary"]].fillna("").astype(str).agg(" ".join, axis=1).str.lower()
+            required_hits = searchable.apply(lambda value: sum(term in value for term in product_terms))
+            minimum_hits = min(2, len(product_terms))
+            location_terms = [term for term in ("saudi", "riyadh", "jeddah", "dammam") if term in cleaned_topic.lower()]
+            location_hits = searchable.apply(lambda value: any(term in value for term in location_terms))
+            mask = required_hits >= minimum_hits
+            if location_terms:
+                mask = mask & location_hits
+            frame = frame[mask].reset_index(drop=True)
+    return frame
 
 
 def module_to_dict(module: NewsModule) -> dict[str, object]:

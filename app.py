@@ -43,9 +43,17 @@ def cached_open_search(
     days_back: int,
     max_items: int,
     fetch_excerpts: bool,
-    broad_search: bool,
+    search_mode: str,
 ) -> pd.DataFrame:
-    return fetch_open_search_news(topic, days_back, max_items, fetch_excerpts, broad_search)
+    return fetch_open_search_news(topic, days_back, max_items, fetch_excerpts, search_mode)
+
+
+def normalize_open_search_mode(label: str) -> str:
+    if label == "Exact phrase":
+        return "exact"
+    if label == "Product / supplier":
+        return "product"
+    return "smart"
 
 
 def dataframe_to_excel(frame: pd.DataFrame) -> bytes:
@@ -114,7 +122,10 @@ def render_open_search_results(
         st.info("Use the Open search controls in the sidebar to search any topic, such as a company, product, person, or phrase.")
         return
     if open_search_data.empty:
-        st.info(f"No articles found for {topic}. Try broad expansion, a longer lookback, or a more specific phrase.")
+        st.info(
+            f"No articles found for {topic}. If this is a niche product or supplier search, Google News may not index "
+            "catalog pages. Try Exact phrase or Smart mode, increase lookback, or use fewer product words."
+        )
         return
 
     st.subheader(f"Results for {topic}")
@@ -242,10 +253,11 @@ with st.sidebar:
     open_topic = st.text_input("Topic", placeholder="Example: Hiba Pharma")
     open_lookback = st.slider("Open search lookback", min_value=1, max_value=365, value=30)
     open_max_items = st.slider("Open search items", min_value=5, max_value=100, value=25, step=5)
-    broad_open_search = st.toggle(
-        "Broad topic expansion",
-        value=True,
-        help="Adds variants like news, company, pharma, healthcare, India, Middle East, UAE, and Saudi.",
+    open_search_mode = st.selectbox(
+        "Search mode",
+        options=["Smart", "Exact phrase", "Product / supplier"],
+        index=0,
+        help="Use Product / supplier for commercial or equipment searches to avoid general geopolitics.",
     )
     run_open_search = st.button("Search topic", width="stretch")
 
@@ -286,7 +298,7 @@ if run_open_search:
                 open_lookback,
                 open_max_items,
                 fetch_excerpts,
-                broad_open_search,
+                normalize_open_search_mode(open_search_mode),
             )
             st.session_state.open_search_topic = open_topic.strip()
 
