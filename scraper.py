@@ -243,10 +243,33 @@ def fetch_open_search_news(
     days_back: int = 30,
     max_items: int = 25,
     fetch_excerpts: bool = False,
+    broad_search: bool = True,
 ) -> pd.DataFrame:
     cleaned_topic = normalize_text(topic)
     if not cleaned_topic:
         return pd.DataFrame()
+
+    query_variants = [cleaned_topic]
+    if broad_search:
+        quoted_topic = f'"{cleaned_topic}"'
+        query_variants.extend(
+            [
+                quoted_topic,
+                f"{cleaned_topic} news",
+                f"{cleaned_topic} company",
+                f"{cleaned_topic} pharma OR healthcare OR pharmaceutical",
+                f"{cleaned_topic} India OR Middle East OR UAE OR Saudi",
+            ]
+        )
+        if len(cleaned_topic.split()) == 1:
+            query_variants.extend(
+                [
+                    f"{cleaned_topic} pharmaceutical",
+                    f"{cleaned_topic} healthcare",
+                    f"{cleaned_topic} investment OR acquisition OR partnership",
+                ]
+            )
+    query_variants = tuple(dict.fromkeys(query_variants))
 
     module = NewsModule(
         key="open_search",
@@ -254,7 +277,7 @@ def fetch_open_search_news(
         group="Open Search",
         subgroup="Ad hoc topic search",
         description=f"Ad hoc news search for {cleaned_topic}.",
-        queries=(cleaned_topic,),
+        queries=query_variants,
         include_terms=tuple(part for part in re.split(r"\s+", cleaned_topic) if len(part) > 2),
         watch_entities=(cleaned_topic,),
     )

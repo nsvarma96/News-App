@@ -43,8 +43,9 @@ def cached_open_search(
     days_back: int,
     max_items: int,
     fetch_excerpts: bool,
+    broad_search: bool,
 ) -> pd.DataFrame:
-    return fetch_open_search_news(topic, days_back, max_items, fetch_excerpts)
+    return fetch_open_search_news(topic, days_back, max_items, fetch_excerpts, broad_search)
 
 
 def dataframe_to_excel(frame: pd.DataFrame) -> bytes:
@@ -100,6 +101,56 @@ def render_article(row: pd.Series, fetch_excerpts: bool) -> None:
         if fetch_excerpts and row.get("excerpt"):
             with st.expander("Extracted excerpt"):
                 st.write(row["excerpt"])
+
+
+def render_open_search_results(
+    open_search_data: pd.DataFrame | None,
+    topic: str,
+    fetch_excerpts: bool,
+    summary_items: int,
+) -> None:
+    st.markdown('<div class="section-eyebrow">Ad hoc topic search</div>', unsafe_allow_html=True)
+    if open_search_data is None:
+        st.info("Use the Open search controls in the sidebar to search any topic, such as a company, product, person, or phrase.")
+        return
+    if open_search_data.empty:
+        st.info(f"No articles found for {topic}. Try broad expansion, a longer lookback, or a more specific phrase.")
+        return
+
+    st.subheader(f"Results for {topic}")
+    render_summary_card(summarize_section(open_search_data, f"Open Search: {topic}", limit=summary_items))
+
+    open_download_cols = [
+        "title",
+        "source",
+        "published",
+        "relevance",
+        "summary",
+        "excerpt",
+        "url",
+        "query",
+    ]
+    open_download = open_search_data[open_download_cols].copy()
+    open_csv, open_excel = st.columns(2)
+    with open_csv:
+        st.download_button(
+            "Download open search CSV",
+            data=open_download.to_csv(index=False).encode("utf-8-sig"),
+            file_name="open_search_news.csv",
+            mime="text/csv",
+            width="stretch",
+        )
+    with open_excel:
+        st.download_button(
+            "Download open search Excel",
+            data=dataframe_to_excel(open_download),
+            file_name="open_search_news.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            width="stretch",
+        )
+
+    for _, row in open_search_data.head(50).iterrows():
+        render_article(row, fetch_excerpts)
 
 
 st.markdown(
@@ -191,6 +242,11 @@ with st.sidebar:
     open_topic = st.text_input("Topic", placeholder="Example: Hiba Pharma")
     open_lookback = st.slider("Open search lookback", min_value=1, max_value=365, value=30)
     open_max_items = st.slider("Open search items", min_value=5, max_value=100, value=25, step=5)
+    broad_open_search = st.toggle(
+        "Broad topic expansion",
+        value=True,
+        help="Adds variants like news, company, pharma, healthcare, India, Middle East, UAE, and Saudi.",
+    )
     run_open_search = st.button("Search topic", width="stretch")
 
     st.divider()
@@ -230,10 +286,19 @@ if run_open_search:
                 open_lookback,
                 open_max_items,
                 fetch_excerpts,
+                broad_open_search,
             )
             st.session_state.open_search_topic = open_topic.strip()
 
 if st.session_state.news_data is None:
+    if st.session_state.open_search_data is not None:
+        render_open_search_results(
+            st.session_state.open_search_data,
+            st.session_state.open_search_topic,
+            fetch_excerpts,
+            summary_items,
+        )
+        st.stop()
     st.info("Choose your modules and lookback windows, then tap Load / Refresh news to fetch the latest free-source articles.")
     preview_cols = st.columns(3)
     for index, group in enumerate(GROUP_ORDER):
@@ -394,48 +459,12 @@ with tabs[1]:
                 render_article(row, fetch_excerpts)
 
 with tabs[2]:
-    st.markdown('<div class="section-eyebrow">Ad hoc topic search</div>', unsafe_allow_html=True)
-    if open_search_data is None:
-        st.info("Use the Open search controls in the sidebar to search any topic, such as a company, product, person, or phrase.")
-    elif open_search_data.empty:
-        st.info(f"No articles found for {st.session_state.open_search_topic}. Try a broader spelling or longer lookback.")
-    else:
-        st.subheader(f"Results for {st.session_state.open_search_topic}")
-        render_summary_card(
-            summarize_section(open_search_data, f"Open Search: {st.session_state.open_search_topic}", limit=summary_items)
-        )
-
-        open_download_cols = [
-            "title",
-            "source",
-            "published",
-            "relevance",
-            "summary",
-            "excerpt",
-            "url",
-            "query",
-        ]
-        open_download = open_search_data[open_download_cols].copy()
-        open_csv, open_excel = st.columns(2)
-        with open_csv:
-            st.download_button(
-                "Download open search CSV",
-                data=open_download.to_csv(index=False).encode("utf-8-sig"),
-                file_name="open_search_news.csv",
-                mime="text/csv",
-                width="stretch",
-            )
-        with open_excel:
-            st.download_button(
-                "Download open search Excel",
-                data=dataframe_to_excel(open_download),
-                file_name="open_search_news.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                width="stretch",
-            )
-
-        for _, row in open_search_data.head(50).iterrows():
-            render_article(row, fetch_excerpts)
+    render_open_search_results(
+        open_search_data,
+        st.session_state.open_search_topic,
+        fetch_excerpts,
+        summary_items,
+    )
 
 with tabs[3]:
     source_counts = (
