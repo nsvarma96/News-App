@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from news_config import NEWS_MODULES
-from scraper import fetch_modules_with_lookbacks, module_to_dict
+from scraper import fetch_modules_with_lookbacks, fetch_open_search_news, module_to_dict
 from summarizer import summarize_section
 
 
@@ -35,6 +35,16 @@ def cached_fetch_all(
         max_items_per_query,
         fetch_excerpts,
     )
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_open_search(
+    topic: str,
+    days_back: int,
+    max_items: int,
+    fetch_excerpts: bool,
+) -> pd.DataFrame:
+    return fetch_open_search_news(topic, days_back, max_items, fetch_excerpts)
 
 
 def dataframe_to_excel(frame: pd.DataFrame) -> bytes:
@@ -177,6 +187,13 @@ with st.sidebar:
         st.cache_data.clear()
 
     st.divider()
+    st.header("Open search")
+    open_topic = st.text_input("Topic", placeholder="Example: Hiba Pharma")
+    open_lookback = st.slider("Open search lookback", min_value=1, max_value=365, value=30)
+    open_max_items = st.slider("Open search items", min_value=5, max_value=100, value=25, step=5)
+    run_open_search = st.button("Search topic", width="stretch")
+
+    st.divider()
     st.caption("New modules can be added in news_config.py without changing the UI.")
 
 if not selected_keys:
@@ -199,6 +216,23 @@ if load_news:
         st.session_state.news_data = cached_fetch_all(*settings)
         st.session_state.news_settings = settings
 
+if "open_search_data" not in st.session_state:
+    st.session_state.open_search_data = None
+    st.session_state.open_search_topic = ""
+
+if run_open_search:
+    if not open_topic.strip():
+        st.warning("Enter a topic for open search.")
+    else:
+        with st.spinner(f"Searching news for {open_topic.strip()}..."):
+            st.session_state.open_search_data = cached_open_search(
+                open_topic.strip(),
+                open_lookback,
+                open_max_items,
+                fetch_excerpts,
+            )
+            st.session_state.open_search_topic = open_topic.strip()
+
 if st.session_state.news_data is None:
     st.info("Choose your modules and lookback windows, then tap Load / Refresh news to fetch the latest free-source articles.")
     preview_cols = st.columns(3)
@@ -212,6 +246,7 @@ if st.session_state.news_data is None:
     st.stop()
 
 news = st.session_state.news_data
+open_search_data = st.session_state.open_search_data
 
 if news.empty:
     st.info("No news found for the selected modules and filters. Try increasing the lookback window.")
@@ -306,7 +341,7 @@ with download_col2:
         width="stretch",
     )
 
-tabs = st.tabs(["Executive Summary", "Section Streams", "Source View", "Module Config"])
+tabs = st.tabs(["Executive Summary", "Section Streams", "Open Search", "Source View", "Module Config"])
 
 with tabs[0]:
     st.markdown('<div class="section-eyebrow">Native extractive summary</div>', unsafe_allow_html=True)
@@ -359,6 +394,50 @@ with tabs[1]:
                 render_article(row, fetch_excerpts)
 
 with tabs[2]:
+    st.markdown('<div class="section-eyebrow">Ad hoc topic search</div>', unsafe_allow_html=True)
+    if open_search_data is None:
+        st.info("Use the Open search controls in the sidebar to search any topic, such as a company, product, person, or phrase.")
+    elif open_search_data.empty:
+        st.info(f"No articles found for {st.session_state.open_search_topic}. Try a broader spelling or longer lookback.")
+    else:
+        st.subheader(f"Results for {st.session_state.open_search_topic}")
+        render_summary_card(
+            summarize_section(open_search_data, f"Open Search: {st.session_state.open_search_topic}", limit=summary_items)
+        )
+
+        open_download_cols = [
+            "title",
+            "source",
+            "published",
+            "relevance",
+            "summary",
+            "excerpt",
+            "url",
+            "query",
+        ]
+        open_download = open_search_data[open_download_cols].copy()
+        open_csv, open_excel = st.columns(2)
+        with open_csv:
+            st.download_button(
+                "Download open search CSV",
+                data=open_download.to_csv(index=False).encode("utf-8-sig"),
+                file_name="open_search_news.csv",
+                mime="text/csv",
+                width="stretch",
+            )
+        with open_excel:
+            st.download_button(
+                "Download open search Excel",
+                data=dataframe_to_excel(open_download),
+                file_name="open_search_news.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width="stretch",
+            )
+
+        for _, row in open_search_data.head(50).iterrows():
+            render_article(row, fetch_excerpts)
+
+with tabs[3]:
     source_counts = (
         filtered.groupby(["group", "module", "source"])
         .size()
@@ -367,6 +446,6 @@ with tabs[2]:
     )
     st.dataframe(source_counts, width="stretch", hide_index=True)
 
-with tabs[3]:
+with tabs[4]:
     st.write("Current modules are plain Python config objects, so new categories can be added without changing the Streamlit UI.")
     st.json([module_to_dict(module) for module in NEWS_MODULES])

@@ -238,5 +238,33 @@ def fetch_modules_with_lookbacks(
     return pd.concat(frames, ignore_index=True).drop_duplicates(subset=["module_key", "id"])
 
 
+def fetch_open_search_news(
+    topic: str,
+    days_back: int = 30,
+    max_items: int = 25,
+    fetch_excerpts: bool = False,
+) -> pd.DataFrame:
+    cleaned_topic = normalize_text(topic)
+    if not cleaned_topic:
+        return pd.DataFrame()
+
+    module = NewsModule(
+        key="open_search",
+        label=f"Open Search: {cleaned_topic}",
+        group="Open Search",
+        subgroup="Ad hoc topic search",
+        description=f"Ad hoc news search for {cleaned_topic}.",
+        queries=(cleaned_topic,),
+        include_terms=tuple(part for part in re.split(r"\s+", cleaned_topic) if len(part) > 2),
+        watch_entities=(cleaned_topic,),
+    )
+    return fetch_module_news(
+        module,
+        days_back=days_back,
+        max_items_per_query=max_items,
+        fetch_excerpts=fetch_excerpts,
+    )
+
+
 def module_to_dict(module: NewsModule) -> dict[str, object]:
     return asdict(module)

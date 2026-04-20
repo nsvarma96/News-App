@@ -15,6 +15,7 @@ Streamlit dashboard for free-source discovery of global, India, and pharma/healt
 - Set separate lookback windows for Global, India, and Pharma, up to 365 days each.
 - Adjust items per query to trade off speed versus coverage.
 - Adjust summary depth to show more or fewer top developments in each brief.
+- Use Open Search to search any ad hoc topic, company, product, person, or phrase without editing configuration.
 - Use CSV or Excel download for the filtered result set.
 
 ## Middle East pharma intelligence layer
